@@ -1,0 +1,23 @@
+{
+  "name": "apache-log-top-dimensions",
+  "version": "1.0.0",
+  "description": "Parse an Apache access log and show top values for each dimension, highlighting outliers.",
+  "main": "apache-log-top.js",
+  "bin": {
+    "apache-log-top": "./apache-log-top.js"
+  },
+  "scripts": {
+    "start": "node apache-log-top.js"
+  },
+  "keywords": [
+    "apache",
+    "log",
+    "parser",
+    "analytics"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "eslint": "^8.57.1",
+    "eslint-config-nicjansma": "^1.1.0"
+  }
+}
