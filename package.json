@@ -19,5 +19,8 @@
   "devDependencies": {
     "eslint": "^8.57.1",
     "eslint-config-nicjansma": "^1.1.0"
+  },
+  "dependencies": {
+    "maxmind": "^5.0.5"
   }
 }

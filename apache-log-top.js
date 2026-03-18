@@ -11,6 +11,8 @@
 //
 // Options:
 //   --groups, -g <file>          URL-groups definition file
+//   --geoip, -G <file>           MaxMind GeoLite2-Country.mmdb file
+//                                 (auto-detected in the log file's directory)
 //   --filter, -f <dim=value>     Only count lines where <dim> equals <value>
 //                                 May be specified multiple times (AND logic)
 //
@@ -29,6 +31,7 @@
 const fs = require("fs");
 const path = require("path");
 const readline = require("readline");
+const maxmind = require("maxmind");
 
 //
 // Constants
@@ -101,6 +104,7 @@ const rawArgs = process.argv.slice(2);
 
 // Extract named options from anywhere in the argument list
 let groupsFile = null;
+let geoipFile = null;
 
 // Array of { dimName: string, value: string }
 const filters = [];
@@ -110,6 +114,8 @@ const positionalArgs = [];
 for (let i = 0; i < rawArgs.length; i++) {
     if (rawArgs[i] === "--groups" || rawArgs[i] === "-g") {
         groupsFile = rawArgs[++i];
+    } else if (rawArgs[i] === "--geoip" || rawArgs[i] === "-G") {
+        geoipFile = rawArgs[++i];
     } else if (rawArgs[i] === "--filter" || rawArgs[i] === "-f") {
         const spec = rawArgs[++i];
         const eqIdx = spec ? spec.indexOf("=") : -1;
@@ -130,6 +136,7 @@ if (positionalArgs.length < 1) {
     console.log("  logfile            Path to an Apache Combined-format access log");
     console.log("  threshold_percent  Highlight values exceeding this % of total hits (default: 30)");
     console.log("  --groups, -g       Path to a URL-groups definition file (see README)");
+    console.log("  --geoip, -G        Path to a MaxMind GeoLite2-Country.mmdb file");
     console.log("  --filter, -f       Filter to lines matching Dimension=Value (repeatable, AND logic)");
     process.exit(1);
 }
@@ -258,6 +265,25 @@ function matchUrlGroup(url) {
     return null;
 }
 
+// ── GeoIP database ──────────────────────────────────────────────────────────
+let geoipDb = null;
+
+// Auto-detect GeoLite2-Country.mmdb in the same directory if --geoip not given
+if (!geoipFile) {
+    const autoPath = path.join(path.dirname(logFile), "GeoLite2-Country.mmdb");
+
+    if (fs.existsSync(autoPath)) {
+        geoipFile = autoPath;
+    }
+}
+
+if (geoipFile) {
+    if (!fs.existsSync(geoipFile)) {
+        console.error(`Error: GeoIP database '${geoipFile}' not found.`);
+        process.exit(1);
+    }
+}
+
 if (groupsFile) {
     loadUrlGroups(groupsFile);
 
@@ -326,6 +352,7 @@ function timeBucket(ms) {
 const dims = {
     ipAddress:    new DimensionCounter("IP Address"),
     ipSubnet:     new DimensionCounter("IP Subnet (/24)"),
+    country:      new DimensionCounter("Country"),
     date:         new DimensionCounter("Date"),
     hour:         new DimensionCounter("Hour"),
     httpMethod:   new DimensionCounter("HTTP Method"),
@@ -344,7 +371,7 @@ const dims = {
 
 // Ordered list for printing
 const dimOrder = [
-    "ipAddress", "ipSubnet", "date", "hour",
+    "ipAddress", "ipSubnet", "country", "date", "hour",
     "httpMethod", "url", "urlPath", "extension",
     "statusCode", "statusClass", "sizeBucket", "timeBucket",
     "referer", "userAgent", "uaFamily", "httpProtocol"
@@ -404,6 +431,13 @@ function extractRecord(line) {
         rec.ipSubnet = `${octets[0]}.${octets[1]}.${octets[2]}.0/24`;
     } else {
         rec.ipSubnet = ip;
+    }
+
+    // Country (GeoIP)
+    if (geoipDb) {
+        const geo = geoipDb.get(ip);
+
+        rec.country = geo && geo.country ? geo.country.iso_code : "(unknown)";
     }
 
     // Date & hour
@@ -597,6 +631,11 @@ function printDimension(dim, total, topN = 5) {
 
 // ── Main ────────────────────────────────────────────────────────────────────
 async function main() {
+    // Load GeoIP database if configured
+    if (geoipFile) {
+        geoipDb = await maxmind.open(geoipFile);
+    }
+
     const fileSizeBytes = fs.statSync(logFile).size;
     let bytesRead = 0;
     let lastProgressUpdate = 0;
@@ -688,6 +727,10 @@ async function main() {
     console.log(`  Total hits: ${CYN}${total}${RST}` +
         `${hasFilter ? `  (${scanned} scanned, ${scanned - matched} filtered out)` : ""}`);
     console.log(`  Threshold : ${CYN}${threshold}%${RST}  (values above this are ${RED}highlighted${RST})`);
+
+    if (geoipFile) {
+        console.log(`  GeoIP DB  : ${CYN}${geoipFile}${RST}`);
+    }
 
     if (groupsFile) {
         console.log(`  URL groups: ${CYN}${groupsFile}${RST}  (${urlGroups.length} rules loaded)`);

@@ -1,41 +1,45 @@
 # apache-log-top-dimensions
 
-A zero-dependency Node.js CLI tool that parses an **Apache Combined Log Format** access log, ranks the top values for every extracted dimension, and highlights any value that exceeds a user-defined percentage of total traffic.
+A zero-dependency* Node.js CLI tool that parses an **Apache Combined Log Format** access log, ranks the top values for every extracted dimension, and highlights any value that exceeds a user-defined percentage of total traffic.
+
+(\**Adding MaxMind country-code lookup `--geoip` adds a single dependency*)
 
 ## Features
 
-- **16 built-in dimensions** extracted in a single streaming pass:
+- **17 built-in dimensions** extracted in a single streaming pass:
 
-  | Dimension            | Example                             |
-  |----------------------|-------------------------------------|
-  | IP Address           | `192.168.1.1`                       |
-  | IP Subnet (/24)      | `192.168.1.0/24`                    |
-  | Date                 | `10/Oct/2000`                       |
-  | Hour                 | `13:00`                             |
-  | HTTP Method          | `GET`                               |
-  | URL (full)           | `/index.html?q=test`                |
-  | URL Path (no query)  | `/index.html`                       |
-  | File Extension       | `.html`                             |
-  | HTTP Status Code     | `200`                               |
-  | Status Class         | `2xx`                               |
-  | Response Size Bucket | `1K-10K`                            |
-  | Referer              | `https://example.com/`              |
-  | User-Agent           | *(full string)*                     |
-  | User-Agent Family    | `Chrome`, `Firefox`, `Googlebot`, … |
-  | Response Time Bucket | `0-100ms`                           |
-  | HTTP Protocol        | `HTTP/1.1`                          |
+  | Dimension            | Example                               |
+  |----------------------|---------------------------------------|
+  | IP Address           | `192.168.1.1`                         |
+  | IP Subnet (/24)      | `192.168.1.0/24`                      |
+  | Country              | `US`, `DE`, `JP`, ...                 |
+  | Date                 | `10/Oct/2000`                         |
+  | Hour                 | `13:00`                               |
+  | HTTP Method          | `GET`                                 |
+  | URL (full)           | `/index.html?q=test`                  |
+  | URL Path (no query)  | `/index.html`                         |
+  | File Extension       | `.html`                               |
+  | HTTP Status Code     | `200`                                 |
+  | Status Class         | `2xx`                                 |
+  | Response Size Bucket | `1K-10K`                              |
+  | Referer              | `https://example.com/`                |
+  | User-Agent           | *(full string)*                       |
+  | User-Agent Family    | `Chrome`, `Firefox`, `Googlebot`, ... |
+  | Response Time Bucket | `0-100ms`                             |
+  | HTTP Protocol        | `HTTP/1.1`                            |
 
+- **GeoIP Country lookup** — resolve IP addresses to ISO country codes using a free MaxMind GeoLite2-Country database
 - **Custom URL Groups** — supply a file of regex rules to classify URLs into your own categories (e.g. "Wiki page", "API call", "Static asset")
 - **Top 5** values shown for each dimension with hit count and percentage
 - Values exceeding the threshold are **highlighted in red** with a `◀ exceeds N%` marker
 - **Progress bar** on stderr while reading (percentage, bytes, line count)
 - **TTY-aware** — colours and progress bar are automatically disabled when output is piped or redirected
 - **Streaming** — reads line-by-line so it can handle large log files without high memory usage
-- **Zero dependencies** — uses only Node.js built-in modules (`fs`, `readline`, `path`)
+- **Minimal dependencies** — one optional runtime dependency (`maxmind`) for GeoIP lookups
 
 ## Requirements
 
-- Node.js **14+** (uses `for await…of` and `??` operator)
+- Node.js **14+** (uses `for await...of` and `??` operator)
 
 ## Installation
 
@@ -44,7 +48,11 @@ git clone <repo-url>
 cd apache-log-top-dimensions
 ```
 
-No `npm install` needed — there are no dependencies.
+Then install dependencies (only when using MaxMind):
+
+```bash
+npm install
+```
 
 ## Usage
 
@@ -52,12 +60,13 @@ No `npm install` needed — there are no dependencies.
 node apache-log-top.js <logfile> [threshold_percent] [options]
 ```
 
-| Argument            | Description                                                    | Default      |
-|---------------------|----------------------------------------------------------------|--------------|
-| `logfile`           | Path to an Apache Combined-format access log                   | *(required)* |
-| `threshold_percent` | Highlight any value exceeding this % of total hits             | `30`         |
-| `--groups`, `-g`    | Path to a URL-groups definition file                           | *(none)*     |
-| `--filter`, `-f`    | Only count lines where a dimension equals a value (repeatable) | *(none)*     |
+| Argument            | Description                                                    | Default           |
+|---------------------|----------------------------------------------------------------|-------------------|
+| `logfile`           | Path to an Apache Combined-format access log                   | *(required)*      |
+| `threshold_percent` | Highlight any value exceeding this % of total hits             | `30`              |
+| `--groups`, `-g`    | Path to a URL-groups definition file                           | *(none)*          |
+| `--geoip`, `-G`     | Path to a MaxMind GeoLite2-Country `.mmdb` file                | *(auto-detected)* |
+| `--filter`, `-f`    | Only count lines where a dimension equals a value (repeatable) | *(none)*          |
 
 ### Examples
 
@@ -82,6 +91,12 @@ node apache-log-top.js access.log -f "HTTP Method=POST" -f "Status Class=5xx"
 
 # Filter by URL Group (requires --groups)
 node apache-log-top.js access.log --groups url-groups.txt --filter "URL Group=Homepage"
+
+# With an explicit GeoIP database path
+node apache-log-top.js access.log --geoip /path/to/GeoLite2-Country.mmdb
+
+# Filter to traffic from a single country
+node apache-log-top.js access.log --filter "Country=US"
 ```
 
 ### Filtering
@@ -91,6 +106,31 @@ Use `--filter "Dimension Name=value"` (or `-f`) to restrict analysis to only the
 - Multiple `--filter` flags combine with **AND** logic.
 - Dimension names are **case-insensitive** and must match one of the displayed dimension names (e.g. `IP Address`, `HTTP Method`, `Status Class`, `URL Group`, etc.).
 - The header shows how many lines were scanned vs. how many passed the filter.
+
+## GeoIP Country Lookup
+
+The tool can resolve IP addresses to ISO country codes (e.g. `US`, `DE`, `JP`) using a [MaxMind GeoLite2-Country](https://dev.maxmind.com/geoip/geolite2-free-geolocation-data) database.
+
+### Setup
+
+1. Sign up for a free MaxMind account and download the **GeoLite2-Country** database in `.mmdb` format.
+2. Place `GeoLite2-Country.mmdb` in the same directory as your log file — it will be auto-detected.
+3. Alternatively, specify the path explicitly with `--geoip /path/to/GeoLite2-Country.mmdb`.
+
+When a GeoIP database is loaded, a **Country** dimension appears in the output showing the top countries by hit count. IPs that cannot be resolved show as `(unknown)`.
+
+### Sample GeoIP output
+
+```text
+── Country ──────────────────────────────────────────
+  Count    %        Value
+  ------   ------   -----
+  5610     56.1%    US        ◀ exceeds 30%
+  2770     27.7%    DE
+  180      1.8%     SG
+  150      1.5%     NL
+  130      1.3%     JP
+```
 
 ## URL Groups File
 
@@ -123,7 +163,7 @@ Here's an example URL Groups file:
 # - Lines starting with # are comments.
 # - Blank lines are ignored.
 # - The regex is matched against the full request URL (including query string).
-# - The output expression can use $1, $2, … to reference capture groups.
+# - The output expression can use $1, $2, ... to reference capture groups.
 # - If no  =>  separator is present, the full regex match ($0) is used.
 #
 # Rules are evaluated top-to-bottom; the first match wins.
@@ -219,3 +259,8 @@ This application was written with AI assistance (Claude Opus 4.6) for code gener
 ## License
 
 MIT
+
+## Version History
+
+- v1.0.0 - 2026-03-07: Initial version release
+- v1.1.0 - 2026-03-18: Added Country lookup
