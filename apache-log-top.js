@@ -31,7 +31,6 @@
 const fs = require("fs");
 const path = require("path");
 const readline = require("readline");
-const maxmind = require("maxmind");
 
 //
 // Constants
@@ -633,7 +632,7 @@ function printDimension(dim, total, topN = 5) {
 async function main() {
     // Load GeoIP database if configured
     if (geoipFile) {
-        geoipDb = await maxmind.open(geoipFile);
+        geoipDb = await require("maxmind").open(geoipFile);
     }
 
     const fileSizeBytes = fs.statSync(logFile).size;
